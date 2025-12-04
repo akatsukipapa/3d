@@ -3,32 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interactive Hand-Controlled Particles</title>
+    <title>Hand Controlled Particles 3D</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Helvetica Neue', Arial, sans-serif; }
         canvas { display: block; }
         #video-container {
             position: absolute;
-            bottom: 20px;
-            left: 20px;
-            width: 160px;
-            height: 120px;
-            border-radius: 12px;
-            overflow: hidden;
+            bottom: 20px; left: 20px;
+            width: 160px; height: 120px;
+            border-radius: 12px; overflow: hidden;
             border: 2px solid rgba(255, 255, 255, 0.2);
             z-index: 10;
-            transform: scaleX(-1);
+            transform: scaleX(-1); /* 鏡のように反転 */
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
         video { width: 100%; height: 100%; object-fit: cover; }
         #loading {
-            position: absolute;
-            top: 50%; left: 50%; transform: translate(-50%, -50%);
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             color: white; font-size: 1.2rem; pointer-events: none;
             text-align: center; background: rgba(0,0,0,0.7);
             padding: 20px; border-radius: 8px; z-index: 100;
         }
-        .lil-gui { --background-color: rgba(20, 20, 20, 0.8); --text-color: #eee; --title-background-color: #2a2a2a; }
+        .lil-gui { --background-color: rgba(20, 20, 20, 0.8); --text-color: #eee; }
     </style>
     
     <script type="importmap">
@@ -58,15 +54,21 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         
         // --- 設定 ---
-        const PARTICLE_COUNT = 12000; // 粒の形が見えやすいように少し減らす
-        const PARTICLE_SIZE = 0.15;   // 形が見えるように少し大きく
+        // パフォーマンス向上のため数を調整 (12000 -> 6000)
+        const PARTICLE_COUNT = 6000;
+        const PARTICLE_SIZE = 0.18; // 数が減った分、少し大きく
         
         const config = {
             shape: 'Heart',
-            textureType: 'Glow', // 初期の粒の形
-            color: '#ff0055',
-            handInfluence: 0.0,
-            autoRotate: true
+            textureType: 'Glow',
+            color: '#00ffff',
+            
+            // 手の影響度
+            handExpansion: 0.0,   // 開き具合
+            handRotateX: 0.0,     // 上下の動きによる回転速度
+            handRotateY: 0.0,     // 左右の動きによる回転速度
+            
+            autoRotate: true      // 手がないときは自動回転
         };
 
         // --- Three.js 初期化 ---
@@ -76,7 +78,7 @@
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         camera.position.z = 5;
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true }); // antialiasオフで軽量化
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         document.body.appendChild(renderer.domElement);
@@ -84,50 +86,41 @@
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
 
-        // --- テクスチャ生成ロジック (絵文字や記号を描画) ---
+        // --- テクスチャ生成 ---
         function createTexture(type) {
             const canvas = document.createElement('canvas');
-            canvas.width = 128; // 解像度を高めに
-            canvas.height = 128;
+            canvas.width = 64; // 軽量化のため解像度調整
+            canvas.height = 64;
             const ctx = canvas.getContext('2d');
             
             if (type === 'Glow') {
-                // 従来の光る円
-                const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+                const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
                 gradient.addColorStop(0, 'rgba(255,255,255,1)');
-                gradient.addColorStop(0.2, 'rgba(255,255,255,0.8)');
-                gradient.addColorStop(0.5, 'rgba(255,255,255,0.2)');
+                gradient.addColorStop(0.4, 'rgba(255,255,255,0.5)');
                 gradient.addColorStop(1, 'rgba(0,0,0,0)');
                 ctx.fillStyle = gradient;
-                ctx.fillRect(0, 0, 128, 128);
+                ctx.fillRect(0, 0, 64, 64);
             } else {
-                // 絵文字や記号を描画
-                ctx.font = '90px sans-serif';
+                ctx.font = '48px sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                
-                // 色を白にしておくと、Three.jsのColor設定で好きな色に着色できます
-                // (ただしカラー絵文字「🦋」などは元の色が残ることがあります)
                 ctx.fillStyle = '#ffffff'; 
-
                 let char = '';
                 switch(type) {
-                    case 'Heart': char = '♥'; break;     // ハート
-                    case 'Star': char = '★'; break;      // 星
-                    case 'Butterfly': char = '🦋'; break; // チョウチョ
-                    case 'Note': char = '♪'; break;       // 音符
-                    case 'Snow': char = '❄'; break;       // 雪の結晶
-                    case 'Cat': char = '🐱'; break;       // 猫
+                    case 'Heart': char = '♥'; break;
+                    case 'Star': char = '★'; break;
+                    case 'Butterfly': char = '🦋'; break;
+                    case 'Note': char = '♪'; break;
+                    case 'Snow': char = '❄'; break;
+                    case 'Cat': char = '🐱'; break;
                     default: char = '●';
                 }
-                
-                ctx.fillText(char, 64, 64);
+                ctx.fillText(char, 32, 32);
             }
-            
-            const texture = new THREE.CanvasTexture(canvas);
-            return texture;
+            return new THREE.CanvasTexture(canvas);
         }
 
+        // --- パーティクル生成 ---
         const geometry = new THREE.BufferGeometry();
         const positions = new Float32Array(PARTICLE_COUNT * 3);
         const targetPositions = new Float32Array(PARTICLE_COUNT * 3);
@@ -142,25 +135,23 @@
         const material = new THREE.PointsMaterial({
             color: new THREE.Color(config.color),
             size: PARTICLE_SIZE,
-            map: createTexture(config.textureType), // 初期のテクスチャ
+            map: createTexture(config.textureType),
             blending: THREE.AdditiveBlending,
             depthWrite: false,
             transparent: true,
-            opacity: 0.9
+            opacity: 0.8
         });
 
         const particles = new THREE.Points(geometry, material);
         scene.add(particles);
 
-        // --- 形状計算 ---
-
+        // --- 形状計算ロジック ---
         function getPointOnHeart(t, p) {
             const x = 16 * Math.pow(Math.sin(t), 3);
             const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
             const z = p * 4;
             return new THREE.Vector3(x * 0.05, y * 0.05, z * 0.1);
         }
-
         function getPointOnSphere(u, v, radius) {
             const theta = 2 * Math.PI * u;
             const phi = Math.acos(2 * v - 1);
@@ -169,17 +160,12 @@
             const z = radius * Math.cos(phi);
             return new THREE.Vector3(x, y, z);
         }
-
         function getPointOnSaturn(i) {
-            if (i < PARTICLE_COUNT * 0.7) {
-                return getPointOnSphere(Math.random(), Math.random(), 1.5);
-            } else {
-                const angle = Math.random() * Math.PI * 2;
-                const radius = 2.0 + Math.random() * 1.5;
-                return new THREE.Vector3(Math.cos(angle) * radius, (Math.random()-0.5)*0.1, Math.sin(angle) * radius);
-            }
+            if (i < PARTICLE_COUNT * 0.7) return getPointOnSphere(Math.random(), Math.random(), 1.5);
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 2.0 + Math.random() * 1.5;
+            return new THREE.Vector3(Math.cos(angle) * radius, (Math.random()-0.5)*0.1, Math.sin(angle) * radius);
         }
-
         function getPointOnFlower(u, v) {
             const r = 2 + Math.sin(7 * u * Math.PI * 2) * 0.5;
             const theta = 2 * Math.PI * u;
@@ -189,31 +175,19 @@
             const z = r * Math.cos(phi) * 0.5;
             return new THREE.Vector3(x, y, z);
         }
-
         function getPointOnBuddha(i) {
             const ratio = i / PARTICLE_COUNT;
             let p = new THREE.Vector3();
-            if (ratio < 0.2) { 
-                p = getPointOnSphere(Math.random(), Math.random(), 0.6);
-                p.y += 1.8;
-            } else if (ratio < 0.6) {
-                p = getPointOnSphere(Math.random(), Math.random(), 1.1);
-                p.y += 0.2;
-                p.x *= 1.2;
-            } else {
-                const angle = Math.random() * Math.PI * 2;
-                const r = 1.5 + Math.random() * 0.5;
-                p.x = Math.cos(angle) * r;
-                p.z = Math.sin(angle) * r;
-                p.y = -1.0 + (Math.random() - 0.5) * 0.5;
+            if (ratio < 0.2) { p = getPointOnSphere(Math.random(), Math.random(), 0.6); p.y += 1.8; }
+            else if (ratio < 0.6) { p = getPointOnSphere(Math.random(), Math.random(), 1.1); p.y += 0.2; p.x *= 1.2; }
+            else { 
+                const angle = Math.random() * Math.PI * 2; const r = 1.5 + Math.random() * 0.5;
+                p.x = Math.cos(angle) * r; p.z = Math.sin(angle) * r; p.y = -1.0 + (Math.random()-0.5)*0.5;
             }
             return p;
         }
-
         function getPointOnFirework(i) {
-            const u = Math.random();
-            const v = Math.random();
-            const r = 0.2 + Math.random() * 3.5;
+            const u = Math.random(); const v = Math.random(); const r = 0.2 + Math.random() * 3.5;
             return getPointOnSphere(u, v, r);
         }
 
@@ -221,77 +195,52 @@
             for (let i = 0; i < PARTICLE_COUNT; i++) {
                 let vec;
                 const i3 = i * 3;
-                
                 switch (type) {
-                    case 'Heart':
-                        vec = getPointOnHeart(Math.random() * Math.PI * 2, (Math.random() - 0.5));
-                        break;
-                    case 'Saturn':
-                        vec = getPointOnSaturn(i);
-                        break;
-                    case 'Flower':
-                        vec = getPointOnFlower(Math.random(), Math.random());
-                        break;
-                    case 'Buddha': 
-                        vec = getPointOnBuddha(i);
-                        break;
-                    case 'Firework':
-                        vec = getPointOnFirework(i);
-                        break;
-                    default:
-                        vec = getPointOnSphere(Math.random(), Math.random(), 2);
+                    case 'Heart': vec = getPointOnHeart(Math.random() * Math.PI * 2, (Math.random() - 0.5)); break;
+                    case 'Saturn': vec = getPointOnSaturn(i); break;
+                    case 'Flower': vec = getPointOnFlower(Math.random(), Math.random()); break;
+                    case 'Buddha': vec = getPointOnBuddha(i); break;
+                    case 'Firework': vec = getPointOnFirework(i); break;
+                    default: vec = getPointOnSphere(Math.random(), Math.random(), 2);
                 }
-                
-                targetPositions[i3] = vec.x;
-                targetPositions[i3 + 1] = vec.y;
-                targetPositions[i3 + 2] = vec.z;
+                targetPositions[i3] = vec.x; targetPositions[i3+1] = vec.y; targetPositions[i3+2] = vec.z;
             }
         }
-
         updateShape(config.shape);
 
-        // --- GUI 設定 ---
+        // --- GUI ---
         const gui = new lil.GUI({ title: 'Controls' });
+        gui.add(config, 'shape', ['Heart', 'Saturn', 'Flower', 'Buddha', 'Firework']).name('Shape').onChange(updateShape);
+        gui.add(config, 'textureType', ['Glow', 'Heart', 'Star', 'Butterfly', 'Note', 'Snow', 'Cat']).name('Texture').onChange(val => {
+            material.map = createTexture(val); material.needsUpdate = true;
+        });
+        gui.addColor(config, 'color').name('Color').onChange(val => material.color.set(val));
         
-        // 形状テンプレート選択
-        gui.add(config, 'shape', ['Heart', 'Saturn', 'Flower', 'Buddha', 'Firework'])
-           .name('Shape Template')
-           .onChange(val => updateShape(val));
-
-        // 粒のスタイル選択（ここを追加しました！）
-        gui.add(config, 'textureType', ['Glow', 'Heart', 'Star', 'Butterfly', 'Note', 'Snow', 'Cat'])
-           .name('Particle Style')
-           .onChange(val => {
-               material.map = createTexture(val);
-               material.needsUpdate = true;
-           });
-           
-        gui.addColor(config, 'color')
-           .name('Color')
-           .onChange(val => material.color.set(val));
-
-        gui.add(config, 'autoRotate').name('Auto Rotate');
-
-        const handFolder = gui.addFolder('Hand Tracking');
-        handFolder.add(config, 'handInfluence', 0, 1).name('Openness').listen().disable();
-
+        const monitorFolder = gui.addFolder('Movement Monitor');
+        monitorFolder.add(config, 'handExpansion', 0, 1).name('Expansion').listen().disable();
+        monitorFolder.add(config, 'handRotateY', -1, 1).name('Spin Speed').listen().disable();
 
         // --- MediaPipe Hands ---
         const videoElement = document.getElementById('input-video');
         const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
 
+        // 負荷軽減: modelComplexityを0 (Lite) に変更
         hands.setOptions({
-            maxNumHands: 2,
-            modelComplexity: 1,
+            maxNumHands: 1, // 1つに限定して処理を軽くする
+            modelComplexity: 0,
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
 
         hands.onResults(results => {
             document.getElementById('loading').style.display = 'none';
+            
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                // 手が見つかった場合
                 const landmarks = results.multiHandLandmarks[0];
                 const wrist = landmarks[0];
+                
+                // 1. 開閉の計算
                 const tips = [4, 8, 12, 16, 20];
                 let totalDist = 0;
                 tips.forEach(idx => {
@@ -299,10 +248,40 @@
                     totalDist += Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2));
                 });
                 const avgDist = totalDist / 5;
-                let openness = (avgDist - 0.2) / (0.45 - 0.2);
-                config.handInfluence += (Math.max(0, Math.min(1, openness)) - config.handInfluence) * 0.1;
+                const targetOpenness = Math.max(0, Math.min(1, (avgDist - 0.2) / 0.25));
+                
+                // 2. 位置による回転計算 (中心0.5からのズレ)
+                // x: 0(左) - 1(右).  y: 0(上) - 1(下)
+                const xOffset = wrist.x - 0.5; 
+                const yOffset = wrist.y - 0.5;
+
+                // 中央付近(デッドゾーン)では回転させない
+                const deadZone = 0.15;
+                
+                let rotY = 0;
+                let rotX = 0;
+
+                if (Math.abs(xOffset) > deadZone) {
+                    // 右に行くと右回転、左に行くと左回転
+                    rotY = (xOffset > 0 ? xOffset - deadZone : xOffset + deadZone) * 0.15;
+                }
+                if (Math.abs(yOffset) > deadZone) {
+                    // 上下でX軸回転
+                    rotX = (yOffset > 0 ? yOffset - deadZone : yOffset + deadZone) * 0.15;
+                }
+
+                // 値をスムーズに適用
+                config.handExpansion += (targetOpenness - config.handExpansion) * 0.1;
+                config.handRotateY += (rotY - config.handRotateY) * 0.1;
+                config.handRotateX += (rotX - config.handRotateX) * 0.1;
+                
+                // 手があるときは自動回転を一時的に無効化する処理をしたい場合はここでフラグ管理可能
+                
             } else {
-                config.handInfluence += (0.5 - config.handInfluence) * 0.05;
+                // 手が見つからない時
+                config.handExpansion += (0.5 - config.handExpansion) * 0.05;
+                config.handRotateY *= 0.9; // 徐々に止まる
+                config.handRotateX *= 0.9;
             }
         });
 
@@ -312,7 +291,7 @@
         });
         cameraUtils.start();
 
-        // --- アニメーション ---
+        // --- Animation ---
         const clock = new THREE.Clock();
 
         function animate() {
@@ -320,8 +299,9 @@
 
             const time = clock.getElapsedTime();
             const positionsArr = particles.geometry.attributes.position.array;
-            const expansion = 0.5 + config.handInfluence * 1.5; 
+            const expansion = 0.5 + config.handExpansion * 1.5; 
 
+            // パーティクルのモーフィング計算
             for (let i = 0; i < PARTICLE_COUNT; i++) {
                 const i3 = i * 3;
                 let cx = positionsArr[i3];
@@ -331,9 +311,9 @@
                 const ty = targetPositions[i3 + 1];
                 const tz = targetPositions[i3 + 2];
 
-                // ふわふわした動き
-                const noiseX = Math.sin(time + i) * 0.01;
-                const noiseY = Math.cos(time + i * 0.5) * 0.01;
+                // ノイズを加えたスムーズな移動
+                const noiseX = Math.sin(time + i * 0.1) * 0.005;
+                const noiseY = Math.cos(time + i * 0.05) * 0.005;
 
                 cx += (tx - cx) * 0.05 + noiseX;
                 cy += (ty - cy) * 0.05 + noiseY;
@@ -343,12 +323,21 @@
                 positionsArr[i3 + 1] = cy;
                 positionsArr[i3 + 2] = cz;
             }
-
             particles.geometry.attributes.position.needsUpdate = true;
+            
+            // スケーリング適用
             particles.scale.setScalar(expansion);
             material.size = PARTICLE_SIZE * expansion;
 
-            if (config.autoRotate) particles.rotation.y += 0.002;
+            // 回転ロジック
+            if (Math.abs(config.handRotateY) > 0.001 || Math.abs(config.handRotateX) > 0.001) {
+                // 手による操作が優先
+                particles.rotation.y += config.handRotateY; // 左右移動でスピン
+                particles.rotation.x += config.handRotateX; // 上下移動で傾き
+            } else if (config.autoRotate) {
+                // 手が中央または画面外なら自動回転
+                particles.rotation.y += 0.002;
+            }
 
             controls.update();
             renderer.render(scene, camera);
