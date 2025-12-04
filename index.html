@@ -42,27 +42,39 @@
         /* GUIの微調整 */
         .lil-gui { --background-color: rgba(20, 20, 20, 0.8); --text-color: #eee; --title-background-color: #2a2a2a; }
     </style>
+    
+    <!-- Import Map: Three.jsの依存関係を解決する最新の方法 -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
 </head>
 <body>
 
     <div id="loading">システムを起動中...<br>カメラを許可してください</div>
     
-    <!-- ウェブカメラ映像（デバッグ兼フィードバック用） -->
+    <!-- ウェブカメラ映像 -->
     <div id="video-container">
         <video id="input-video" playsinline></video>
     </div>
 
-    <!-- ライブラリの読み込み (CDN) -->
-    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-    <script src="https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js"></script>
+    <!-- MediaPipeライブラリ (これらはグローバル変数として読み込みます) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    
+    <!-- GUIライブラリ -->
     <script src="https://unpkg.com/lil-gui@0.19.1/dist/lil-gui.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
+    <!-- メイン処理 -->
     <script type="module">
-        import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-        import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+        // Import Mapのおかげでシンプルに記述できます
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         
         // --- 設定 ---
         const PARTICLE_COUNT = 15000;
@@ -92,7 +104,6 @@
 
         // --- パーティクルシステムの構築 ---
         
-        // テクスチャ生成（光る円）
         function createSprite() {
             const canvas = document.createElement('canvas');
             canvas.width = 32;
@@ -113,7 +124,6 @@
         const positions = new Float32Array(PARTICLE_COUNT * 3);
         const targetPositions = new Float32Array(PARTICLE_COUNT * 3);
         
-        // 初期位置（ランダム）
         for (let i = 0; i < PARTICLE_COUNT * 3; i++) {
             positions[i] = (Math.random() - 0.5) * 10;
             targetPositions[i] = positions[i];
@@ -134,13 +144,12 @@
         const particles = new THREE.Points(geometry, material);
         scene.add(particles);
 
-        // --- 形状生成ロジック (数学関数) ---
+        // --- 形状生成ロジック ---
 
         function getPointOnHeart(t, p) {
-            // ハートの方程式
             const x = 16 * Math.pow(Math.sin(t), 3);
             const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
-            const z = p * 4; // 厚み
+            const z = p * 4;
             return new THREE.Vector3(x * 0.05, y * 0.05, z * 0.1);
         }
 
@@ -154,7 +163,6 @@
         }
 
         function getPointOnSaturn(i) {
-            // 70% 球体, 30% リング
             if (i < PARTICLE_COUNT * 0.7) {
                 return getPointOnSphere(Math.random(), Math.random(), 1.5);
             } else {
@@ -165,28 +173,26 @@
         }
 
         function getPointOnFlower(u, v) {
-            const r = 2 + Math.sin(7 * u * Math.PI * 2) * 0.5; // 花びらの波動
+            const r = 2 + Math.sin(7 * u * Math.PI * 2) * 0.5;
             const theta = 2 * Math.PI * u;
             const phi = v * Math.PI;
-            
             const x = r * Math.sin(phi) * Math.cos(theta);
             const y = r * Math.sin(phi) * Math.sin(theta);
-            const z = r * Math.cos(phi) * 0.5; // 少し平たく
+            const z = r * Math.cos(phi) * 0.5;
             return new THREE.Vector3(x, y, z);
         }
 
         function getPointOnBuddha(i) {
-            // 簡易的な「瞑想する人」の形（雪だるま式構成）
             const ratio = i / PARTICLE_COUNT;
             let p = new THREE.Vector3();
-            if (ratio < 0.2) { // 頭
+            if (ratio < 0.2) { 
                 p = getPointOnSphere(Math.random(), Math.random(), 0.6);
                 p.y += 1.8;
-            } else if (ratio < 0.6) { // 胴体
+            } else if (ratio < 0.6) {
                 p = getPointOnSphere(Math.random(), Math.random(), 1.1);
                 p.y += 0.2;
-                p.x *= 1.2; // 少し幅広
-            } else { // 足（あぐら）
+                p.x *= 1.2;
+            } else {
                 const angle = Math.random() * Math.PI * 2;
                 const r = 1.5 + Math.random() * 0.5;
                 p.x = Math.cos(angle) * r;
@@ -197,10 +203,9 @@
         }
 
         function getPointOnFirework(i) {
-            // 爆発の瞬間
             const u = Math.random();
             const v = Math.random();
-            const r = 0.2 + Math.random() * 3.5; // 中心から外へ
+            const r = 0.2 + Math.random() * 3.5;
             return getPointOnSphere(u, v, r);
         }
 
@@ -219,7 +224,7 @@
                     case 'Flower':
                         vec = getPointOnFlower(Math.random(), Math.random());
                         break;
-                    case 'Buddha': // Meditating
+                    case 'Buddha': 
                         vec = getPointOnBuddha(i);
                         break;
                     case 'Firework':
@@ -235,7 +240,6 @@
             }
         }
 
-        // 初期形状
         updateShape(config.shape);
 
         // --- GUI 設定 ---
@@ -275,13 +279,7 @@
             document.getElementById('loading').style.display = 'none';
 
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                // 最初に見つかった手を使用
                 const landmarks = results.multiHandLandmarks[0];
-                
-                // 開き具合の計算
-                // 手首(0)と中指の先端(12)の距離を基準に、親指(4)と人差指(8)などの広がりを見る
-                // 簡易ロジック: 手首(0)から各指先(4,8,12,16,20)までの平均距離を計算
-                
                 const wrist = landmarks[0];
                 const tips = [4, 8, 12, 16, 20];
                 let totalDist = 0;
@@ -293,20 +291,17 @@
                 });
                 
                 const avgDist = totalDist / 5;
-                
-                // 0.2 (グー) ～ 0.5 (パー) くらいの範囲を 0.0 ～ 1.0 に正規化
                 let openness = (avgDist - 0.2) / (0.45 - 0.2);
                 openness = Math.max(0, Math.min(1, openness));
                 
-                // 値をスムーズにする (線形補間)
                 config.handInfluence += (openness - config.handInfluence) * 0.1;
 
             } else {
-                // 手が見つからない場合はゆっくりデフォルト(0.5)に戻る、あるいはそのまま
                 config.handInfluence += (0.5 - config.handInfluence) * 0.05;
             }
         }
 
+        // カメラ起動
         const cameraUtils = new Camera(videoElement, {
             onFrame: async () => {
                 await hands.send({image: videoElement});
@@ -325,32 +320,22 @@
 
             const time = clock.getElapsedTime();
             const positionsArr = particles.geometry.attributes.position.array;
-
-            // 手の入力によるスケーリング係数 (ベース1.0 + 開き具合)
-            // 手が開く(1.0) -> 大きく広がる
-            // 手が閉じる(0.0) -> 小さく凝縮する
             const expansion = 0.5 + config.handInfluence * 1.5; 
-            const jitter = config.handInfluence * 0.05; // 手が開くと少し振動する
 
-            // モーフィングと動きの計算
             for (let i = 0; i < PARTICLE_COUNT; i++) {
                 const i3 = i * 3;
                 
-                // ターゲット位置へ移動 (lerp)
                 const tx = targetPositions[i3];
                 const ty = targetPositions[i3 + 1];
                 const tz = targetPositions[i3 + 2];
                 
-                // 現在位置
                 let cx = positionsArr[i3];
                 let cy = positionsArr[i3 + 1];
                 let cz = positionsArr[i3 + 2];
 
-                // パーティクルごとのノイズの動き（生命感）
                 const noiseX = Math.sin(time + i) * 0.01;
                 const noiseY = Math.cos(time + i * 0.5) * 0.01;
 
-                // 補間 (スムーズな移動)
                 cx += (tx - cx) * 0.05 + noiseX;
                 cy += (ty - cy) * 0.05 + noiseY;
                 cz += (tz - cz) * 0.05;
@@ -361,26 +346,17 @@
             }
 
             particles.geometry.attributes.position.needsUpdate = true;
-
-            // 手の入力による全体のスケーリング
             particles.scale.setScalar(expansion);
-            
-            // 色の微調整（手の緊張度で少し明るくするなど）
             material.size = PARTICLE_SIZE * expansion;
 
-            // 回転
             if (config.autoRotate) {
                 particles.rotation.y += 0.002;
-            } else {
-                // 手の位置で回転させるインタラクション（オプション）
-                particles.rotation.y += 0.001; 
             }
 
             controls.update();
             renderer.render(scene, camera);
         }
 
-        // リサイズ対応
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
