@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Hand-Controlled Particles</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Helvetica Neue', Arial, sans-serif; }
+        canvas { display: block; }
+        #video-container {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 160px;
+            height: 120px;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            z-index: 10;
+            transform: scaleX(-1); /* ミラーリング */
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 1.2rem;
+            pointer-events: none;
+            text-align: center;
+            background: rgba(0,0,0,0.7);
+            padding: 20px;
+            border-radius: 8px;
+            z-index: 100;
+        }
+        /* GUIの微調整 */
+        .lil-gui { --background-color: rgba(20, 20, 20, 0.8); --text-color: #eee; --title-background-color: #2a2a2a; }
+    </style>
+</head>
+<body>
+
+    <div id="loading">システムを起動中...<br>カメラを許可してください</div>
+    
+    <!-- ウェブカメラ映像（デバッグ兼フィードバック用） -->
+    <div id="video-container">
+        <video id="input-video" playsinline></video>
+    </div>
+
+    <!-- ライブラリの読み込み (CDN) -->
+    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js"></script>
+    <script src="https://unpkg.com/lil-gui@0.19.1/dist/lil-gui.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+    <script type="module">
+        import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+        import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+        
+        // --- 設定 ---
+        const PARTICLE_COUNT = 15000;
+        const PARTICLE_SIZE = 0.08;
+        
+        const config = {
+            shape: 'Heart',
+            color: '#ff0055',
+            handInfluence: 0.0, // 0 = 閉じた手, 1 = 開いた手
+            autoRotate: true
+        };
+
+        // --- Three.js 初期化 ---
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x050505, 0.02);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 5;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        // --- パーティクルシステムの構築 ---
+        
+        // テクスチャ生成（光る円）
+        function createSprite() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 32;
+            const context = canvas.getContext('2d');
+            const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
+            gradient.addColorStop(0, 'rgba(255,255,255,1)');
+            gradient.addColorStop(0.2, 'rgba(255,255,255,0.8)');
+            gradient.addColorStop(0.5, 'rgba(255,255,255,0.2)');
+            gradient.addColorStop(1, 'rgba(0,0,0,0)');
+            context.fillStyle = gradient;
+            context.fillRect(0, 0, 32, 32);
+            const texture = new THREE.CanvasTexture(canvas);
+            return texture;
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(PARTICLE_COUNT * 3);
+        const targetPositions = new Float32Array(PARTICLE_COUNT * 3);
+        
+        // 初期位置（ランダム）
+        for (let i = 0; i < PARTICLE_COUNT * 3; i++) {
+            positions[i] = (Math.random() - 0.5) * 10;
+            targetPositions[i] = positions[i];
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+        const material = new THREE.PointsMaterial({
+            color: new THREE.Color(config.color),
+            size: PARTICLE_SIZE,
+            map: createSprite(),
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            transparent: true,
+            opacity: 0.8
+        });
+
+        const particles = new THREE.Points(geometry, material);
+        scene.add(particles);
+
+        // --- 形状生成ロジック (数学関数) ---
+
+        function getPointOnHeart(t, p) {
+            // ハートの方程式
+            const x = 16 * Math.pow(Math.sin(t), 3);
+            const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
+            const z = p * 4; // 厚み
+            return new THREE.Vector3(x * 0.05, y * 0.05, z * 0.1);
+        }
+
+        function getPointOnSphere(u, v, radius) {
+            const theta = 2 * Math.PI * u;
+            const phi = Math.acos(2 * v - 1);
+            const x = radius * Math.sin(phi) * Math.cos(theta);
+            const y = radius * Math.sin(phi) * Math.sin(theta);
+            const z = radius * Math.cos(phi);
+            return new THREE.Vector3(x, y, z);
+        }
+
+        function getPointOnSaturn(i) {
+            // 70% 球体, 30% リング
+            if (i < PARTICLE_COUNT * 0.7) {
+                return getPointOnSphere(Math.random(), Math.random(), 1.5);
+            } else {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 2.0 + Math.random() * 1.5;
+                return new THREE.Vector3(Math.cos(angle) * radius, (Math.random()-0.5)*0.1, Math.sin(angle) * radius);
+            }
+        }
+
+        function getPointOnFlower(u, v) {
+            const r = 2 + Math.sin(7 * u * Math.PI * 2) * 0.5; // 花びらの波動
+            const theta = 2 * Math.PI * u;
+            const phi = v * Math.PI;
+            
+            const x = r * Math.sin(phi) * Math.cos(theta);
+            const y = r * Math.sin(phi) * Math.sin(theta);
+            const z = r * Math.cos(phi) * 0.5; // 少し平たく
+            return new THREE.Vector3(x, y, z);
+        }
+
+        function getPointOnBuddha(i) {
+            // 簡易的な「瞑想する人」の形（雪だるま式構成）
+            const ratio = i / PARTICLE_COUNT;
+            let p = new THREE.Vector3();
+            if (ratio < 0.2) { // 頭
+                p = getPointOnSphere(Math.random(), Math.random(), 0.6);
+                p.y += 1.8;
+            } else if (ratio < 0.6) { // 胴体
+                p = getPointOnSphere(Math.random(), Math.random(), 1.1);
+                p.y += 0.2;
+                p.x *= 1.2; // 少し幅広
+            } else { // 足（あぐら）
+                const angle = Math.random() * Math.PI * 2;
+                const r = 1.5 + Math.random() * 0.5;
+                p.x = Math.cos(angle) * r;
+                p.z = Math.sin(angle) * r;
+                p.y = -1.0 + (Math.random() - 0.5) * 0.5;
+            }
+            return p;
+        }
+
+        function getPointOnFirework(i) {
+            // 爆発の瞬間
+            const u = Math.random();
+            const v = Math.random();
+            const r = 0.2 + Math.random() * 3.5; // 中心から外へ
+            return getPointOnSphere(u, v, r);
+        }
+
+        function updateShape(type) {
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                let vec;
+                const i3 = i * 3;
+                
+                switch (type) {
+                    case 'Heart':
+                        vec = getPointOnHeart(Math.random() * Math.PI * 2, (Math.random() - 0.5));
+                        break;
+                    case 'Saturn':
+                        vec = getPointOnSaturn(i);
+                        break;
+                    case 'Flower':
+                        vec = getPointOnFlower(Math.random(), Math.random());
+                        break;
+                    case 'Buddha': // Meditating
+                        vec = getPointOnBuddha(i);
+                        break;
+                    case 'Firework':
+                        vec = getPointOnFirework(i);
+                        break;
+                    default:
+                        vec = getPointOnSphere(Math.random(), Math.random(), 2);
+                }
+                
+                targetPositions[i3] = vec.x;
+                targetPositions[i3 + 1] = vec.y;
+                targetPositions[i3 + 2] = vec.z;
+            }
+        }
+
+        // 初期形状
+        updateShape(config.shape);
+
+        // --- GUI 設定 ---
+        const gui = new lil.GUI({ title: 'Particle Controls' });
+        
+        gui.add(config, 'shape', ['Heart', 'Saturn', 'Flower', 'Buddha', 'Firework'])
+           .name('Template')
+           .onChange(val => updateShape(val));
+           
+        gui.addColor(config, 'color')
+           .name('Particle Color')
+           .onChange(val => material.color.set(val));
+
+        gui.add(config, 'autoRotate').name('Auto Rotate');
+
+        const handFolder = gui.addFolder('Hand Tracking Info');
+        handFolder.add(config, 'handInfluence', 0, 1).name('Openness').listen().disable();
+
+
+        // --- MediaPipe Hands 設定 ---
+        const videoElement = document.getElementById('input-video');
+        
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(onResults);
+
+        function onResults(results) {
+            document.getElementById('loading').style.display = 'none';
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                // 最初に見つかった手を使用
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // 開き具合の計算
+                // 手首(0)と中指の先端(12)の距離を基準に、親指(4)と人差指(8)などの広がりを見る
+                // 簡易ロジック: 手首(0)から各指先(4,8,12,16,20)までの平均距離を計算
+                
+                const wrist = landmarks[0];
+                const tips = [4, 8, 12, 16, 20];
+                let totalDist = 0;
+                
+                tips.forEach(idx => {
+                    const tip = landmarks[idx];
+                    const d = Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2));
+                    totalDist += d;
+                });
+                
+                const avgDist = totalDist / 5;
+                
+                // 0.2 (グー) ～ 0.5 (パー) くらいの範囲を 0.0 ～ 1.0 に正規化
+                let openness = (avgDist - 0.2) / (0.45 - 0.2);
+                openness = Math.max(0, Math.min(1, openness));
+                
+                // 値をスムーズにする (線形補間)
+                config.handInfluence += (openness - config.handInfluence) * 0.1;
+
+            } else {
+                // 手が見つからない場合はゆっくりデフォルト(0.5)に戻る、あるいはそのまま
+                config.handInfluence += (0.5 - config.handInfluence) * 0.05;
+            }
+        }
+
+        const cameraUtils = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 320,
+            height: 240
+        });
+        cameraUtils.start();
+
+
+        // --- アニメーションループ ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = clock.getElapsedTime();
+            const positionsArr = particles.geometry.attributes.position.array;
+
+            // 手の入力によるスケーリング係数 (ベース1.0 + 開き具合)
+            // 手が開く(1.0) -> 大きく広がる
+            // 手が閉じる(0.0) -> 小さく凝縮する
+            const expansion = 0.5 + config.handInfluence * 1.5; 
+            const jitter = config.handInfluence * 0.05; // 手が開くと少し振動する
+
+            // モーフィングと動きの計算
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const i3 = i * 3;
+                
+                // ターゲット位置へ移動 (lerp)
+                const tx = targetPositions[i3];
+                const ty = targetPositions[i3 + 1];
+                const tz = targetPositions[i3 + 2];
+                
+                // 現在位置
+                let cx = positionsArr[i3];
+                let cy = positionsArr[i3 + 1];
+                let cz = positionsArr[i3 + 2];
+
+                // パーティクルごとのノイズの動き（生命感）
+                const noiseX = Math.sin(time + i) * 0.01;
+                const noiseY = Math.cos(time + i * 0.5) * 0.01;
+
+                // 補間 (スムーズな移動)
+                cx += (tx - cx) * 0.05 + noiseX;
+                cy += (ty - cy) * 0.05 + noiseY;
+                cz += (tz - cz) * 0.05;
+
+                positionsArr[i3] = cx;
+                positionsArr[i3 + 1] = cy;
+                positionsArr[i3 + 2] = cz;
+            }
+
+            particles.geometry.attributes.position.needsUpdate = true;
+
+            // 手の入力による全体のスケーリング
+            particles.scale.setScalar(expansion);
+            
+            // 色の微調整（手の緊張度で少し明るくするなど）
+            material.size = PARTICLE_SIZE * expansion;
+
+            // 回転
+            if (config.autoRotate) {
+                particles.rotation.y += 0.002;
+            } else {
+                // 手の位置で回転させるインタラクション（オプション）
+                particles.rotation.y += 0.001; 
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // リサイズ対応
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+
+    </script>
+</body>
+</html>
