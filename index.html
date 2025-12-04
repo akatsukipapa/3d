@@ -17,33 +17,20 @@
             overflow: hidden;
             border: 2px solid rgba(255, 255, 255, 0.2);
             z-index: 10;
-            transform: scaleX(-1); /* ミラーリング */
+            transform: scaleX(-1);
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
-        video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
+        video { width: 100%; height: 100%; object-fit: cover; }
         #loading {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: white;
-            font-size: 1.2rem;
-            pointer-events: none;
-            text-align: center;
-            background: rgba(0,0,0,0.7);
-            padding: 20px;
-            border-radius: 8px;
-            z-index: 100;
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; font-size: 1.2rem; pointer-events: none;
+            text-align: center; background: rgba(0,0,0,0.7);
+            padding: 20px; border-radius: 8px; z-index: 100;
         }
-        /* GUIの微調整 */
         .lil-gui { --background-color: rgba(20, 20, 20, 0.8); --text-color: #eee; --title-background-color: #2a2a2a; }
     </style>
     
-    <!-- Import Map: Three.jsの依存関係を解決する最新の方法 -->
     <script type="importmap">
         {
             "imports": {
@@ -57,33 +44,28 @@
 
     <div id="loading">システムを起動中...<br>カメラを許可してください</div>
     
-    <!-- ウェブカメラ映像 -->
     <div id="video-container">
         <video id="input-video" playsinline></video>
     </div>
 
-    <!-- MediaPipeライブラリ (これらはグローバル変数として読み込みます) -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-    
-    <!-- GUIライブラリ -->
     <script src="https://unpkg.com/lil-gui@0.19.1/dist/lil-gui.umd.min.js"></script>
 
-    <!-- メイン処理 -->
     <script type="module">
-        // Import Mapのおかげでシンプルに記述できます
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         
         // --- 設定 ---
-        const PARTICLE_COUNT = 15000;
-        const PARTICLE_SIZE = 0.08;
+        const PARTICLE_COUNT = 12000; // 粒の形が見えやすいように少し減らす
+        const PARTICLE_SIZE = 0.15;   // 形が見えるように少し大きく
         
         const config = {
             shape: 'Heart',
+            textureType: 'Glow', // 初期の粒の形
             color: '#ff0055',
-            handInfluence: 0.0, // 0 = 閉じた手, 1 = 開いた手
+            handInfluence: 0.0,
             autoRotate: true
         };
 
@@ -102,20 +84,46 @@
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
 
-        // --- パーティクルシステムの構築 ---
-        
-        function createSprite() {
+        // --- テクスチャ生成ロジック (絵文字や記号を描画) ---
+        function createTexture(type) {
             const canvas = document.createElement('canvas');
-            canvas.width = 32;
-            canvas.height = 32;
-            const context = canvas.getContext('2d');
-            const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
-            gradient.addColorStop(0, 'rgba(255,255,255,1)');
-            gradient.addColorStop(0.2, 'rgba(255,255,255,0.8)');
-            gradient.addColorStop(0.5, 'rgba(255,255,255,0.2)');
-            gradient.addColorStop(1, 'rgba(0,0,0,0)');
-            context.fillStyle = gradient;
-            context.fillRect(0, 0, 32, 32);
+            canvas.width = 128; // 解像度を高めに
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            
+            if (type === 'Glow') {
+                // 従来の光る円
+                const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+                gradient.addColorStop(0, 'rgba(255,255,255,1)');
+                gradient.addColorStop(0.2, 'rgba(255,255,255,0.8)');
+                gradient.addColorStop(0.5, 'rgba(255,255,255,0.2)');
+                gradient.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, 128, 128);
+            } else {
+                // 絵文字や記号を描画
+                ctx.font = '90px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // 色を白にしておくと、Three.jsのColor設定で好きな色に着色できます
+                // (ただしカラー絵文字「🦋」などは元の色が残ることがあります)
+                ctx.fillStyle = '#ffffff'; 
+
+                let char = '';
+                switch(type) {
+                    case 'Heart': char = '♥'; break;     // ハート
+                    case 'Star': char = '★'; break;      // 星
+                    case 'Butterfly': char = '🦋'; break; // チョウチョ
+                    case 'Note': char = '♪'; break;       // 音符
+                    case 'Snow': char = '❄'; break;       // 雪の結晶
+                    case 'Cat': char = '🐱'; break;       // 猫
+                    default: char = '●';
+                }
+                
+                ctx.fillText(char, 64, 64);
+            }
+            
             const texture = new THREE.CanvasTexture(canvas);
             return texture;
         }
@@ -134,17 +142,17 @@
         const material = new THREE.PointsMaterial({
             color: new THREE.Color(config.color),
             size: PARTICLE_SIZE,
-            map: createSprite(),
+            map: createTexture(config.textureType), // 初期のテクスチャ
             blending: THREE.AdditiveBlending,
             depthWrite: false,
             transparent: true,
-            opacity: 0.8
+            opacity: 0.9
         });
 
         const particles = new THREE.Points(geometry, material);
         scene.add(particles);
 
-        // --- 形状生成ロジック ---
+        // --- 形状計算 ---
 
         function getPointOnHeart(t, p) {
             const x = 16 * Math.pow(Math.sin(t), 3);
@@ -243,28 +251,34 @@
         updateShape(config.shape);
 
         // --- GUI 設定 ---
-        const gui = new lil.GUI({ title: 'Particle Controls' });
+        const gui = new lil.GUI({ title: 'Controls' });
         
+        // 形状テンプレート選択
         gui.add(config, 'shape', ['Heart', 'Saturn', 'Flower', 'Buddha', 'Firework'])
-           .name('Template')
+           .name('Shape Template')
            .onChange(val => updateShape(val));
+
+        // 粒のスタイル選択（ここを追加しました！）
+        gui.add(config, 'textureType', ['Glow', 'Heart', 'Star', 'Butterfly', 'Note', 'Snow', 'Cat'])
+           .name('Particle Style')
+           .onChange(val => {
+               material.map = createTexture(val);
+               material.needsUpdate = true;
+           });
            
         gui.addColor(config, 'color')
-           .name('Particle Color')
+           .name('Color')
            .onChange(val => material.color.set(val));
 
         gui.add(config, 'autoRotate').name('Auto Rotate');
 
-        const handFolder = gui.addFolder('Hand Tracking Info');
+        const handFolder = gui.addFolder('Hand Tracking');
         handFolder.add(config, 'handInfluence', 0, 1).name('Openness').listen().disable();
 
 
-        // --- MediaPipe Hands 設定 ---
+        // --- MediaPipe Hands ---
         const videoElement = document.getElementById('input-video');
-        
-        const hands = new Hands({locateFile: (file) => {
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-        }});
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
 
         hands.setOptions({
             maxNumHands: 2,
@@ -273,46 +287,32 @@
             minTrackingConfidence: 0.5
         });
 
-        hands.onResults(onResults);
-
-        function onResults(results) {
+        hands.onResults(results => {
             document.getElementById('loading').style.display = 'none';
-
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
                 const wrist = landmarks[0];
                 const tips = [4, 8, 12, 16, 20];
                 let totalDist = 0;
-                
                 tips.forEach(idx => {
                     const tip = landmarks[idx];
-                    const d = Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2));
-                    totalDist += d;
+                    totalDist += Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2));
                 });
-                
                 const avgDist = totalDist / 5;
                 let openness = (avgDist - 0.2) / (0.45 - 0.2);
-                openness = Math.max(0, Math.min(1, openness));
-                
-                config.handInfluence += (openness - config.handInfluence) * 0.1;
-
+                config.handInfluence += (Math.max(0, Math.min(1, openness)) - config.handInfluence) * 0.1;
             } else {
                 config.handInfluence += (0.5 - config.handInfluence) * 0.05;
             }
-        }
+        });
 
-        // カメラ起動
         const cameraUtils = new Camera(videoElement, {
-            onFrame: async () => {
-                await hands.send({image: videoElement});
-            },
-            width: 320,
-            height: 240
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 320, height: 240
         });
         cameraUtils.start();
 
-
-        // --- アニメーションループ ---
+        // --- アニメーション ---
         const clock = new THREE.Clock();
 
         function animate() {
@@ -324,15 +324,14 @@
 
             for (let i = 0; i < PARTICLE_COUNT; i++) {
                 const i3 = i * 3;
-                
-                const tx = targetPositions[i3];
-                const ty = targetPositions[i3 + 1];
-                const tz = targetPositions[i3 + 2];
-                
                 let cx = positionsArr[i3];
                 let cy = positionsArr[i3 + 1];
                 let cz = positionsArr[i3 + 2];
+                const tx = targetPositions[i3];
+                const ty = targetPositions[i3 + 1];
+                const tz = targetPositions[i3 + 2];
 
+                // ふわふわした動き
                 const noiseX = Math.sin(time + i) * 0.01;
                 const noiseY = Math.cos(time + i * 0.5) * 0.01;
 
@@ -349,9 +348,7 @@
             particles.scale.setScalar(expansion);
             material.size = PARTICLE_SIZE * expansion;
 
-            if (config.autoRotate) {
-                particles.rotation.y += 0.002;
-            }
+            if (config.autoRotate) particles.rotation.y += 0.002;
 
             controls.update();
             renderer.render(scene, camera);
