@@ -14,7 +14,7 @@
             border-radius: 12px; overflow: hidden;
             border: 2px solid rgba(255, 255, 255, 0.2);
             z-index: 10;
-            transform: scaleX(-1); /* 鏡のように反転 */
+            transform: scaleX(-1);
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
         video { width: 100%; height: 100%; object-fit: cover; }
@@ -54,21 +54,20 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         
         // --- 設定 ---
-        // パフォーマンス向上のため数を調整 (12000 -> 6000)
         const PARTICLE_COUNT = 6000;
-        const PARTICLE_SIZE = 0.18; // 数が減った分、少し大きく
+        const PARTICLE_SIZE = 0.25; // 絵文字が見やすいサイズ
         
         const config = {
             shape: 'Heart',
-            textureType: 'Glow',
-            color: '#00ffff',
+            textureType: 'Heart', // 初期値をハートに
+            color: '#ff0055',
             
-            // 手の影響度
-            handExpansion: 0.0,   // 開き具合
-            handRotateX: 0.0,     // 上下の動きによる回転速度
-            handRotateY: 0.0,     // 左右の動きによる回転速度
+            // 状態変数
+            handExpansion: 0.0,
+            handRotateX: 0.0,
+            handRotateY: 0.0,
             
-            autoRotate: true      // 手がないときは自動回転
+            autoRotate: true
         };
 
         // --- Three.js 初期化 ---
@@ -78,7 +77,7 @@
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         camera.position.z = 5;
 
-        const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true }); // antialiasオフで軽量化
+        const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         document.body.appendChild(renderer.domElement);
@@ -86,25 +85,27 @@
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
 
-        // --- テクスチャ生成 ---
+        // --- テクスチャ生成 (高画質化) ---
         function createTexture(type) {
             const canvas = document.createElement('canvas');
-            canvas.width = 64; // 軽量化のため解像度調整
-            canvas.height = 64;
+            canvas.width = 128; // 解像度を戻して鮮明に
+            canvas.height = 128;
             const ctx = canvas.getContext('2d');
             
             if (type === 'Glow') {
-                const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+                const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
                 gradient.addColorStop(0, 'rgba(255,255,255,1)');
                 gradient.addColorStop(0.4, 'rgba(255,255,255,0.5)');
                 gradient.addColorStop(1, 'rgba(0,0,0,0)');
                 ctx.fillStyle = gradient;
-                ctx.fillRect(0, 0, 64, 64);
+                ctx.fillRect(0, 0, 128, 128);
             } else {
-                ctx.font = '48px sans-serif';
+                // 絵文字の描画設定
+                ctx.font = '90px sans-serif'; // フォント大きく
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillStyle = '#ffffff'; 
+                
                 let char = '';
                 switch(type) {
                     case 'Heart': char = '♥'; break;
@@ -115,7 +116,7 @@
                     case 'Cat': char = '🐱'; break;
                     default: char = '●';
                 }
-                ctx.fillText(char, 32, 32);
+                ctx.fillText(char, 64, 64);
             }
             return new THREE.CanvasTexture(canvas);
         }
@@ -139,13 +140,13 @@
             blending: THREE.AdditiveBlending,
             depthWrite: false,
             transparent: true,
-            opacity: 0.8
+            opacity: 0.85
         });
 
         const particles = new THREE.Points(geometry, material);
         scene.add(particles);
 
-        // --- 形状計算ロジック ---
+        // --- 形状ロジック ---
         function getPointOnHeart(t, p) {
             const x = 16 * Math.pow(Math.sin(t), 3);
             const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
@@ -194,7 +195,6 @@
         function updateShape(type) {
             for (let i = 0; i < PARTICLE_COUNT; i++) {
                 let vec;
-                const i3 = i * 3;
                 switch (type) {
                     case 'Heart': vec = getPointOnHeart(Math.random() * Math.PI * 2, (Math.random() - 0.5)); break;
                     case 'Saturn': vec = getPointOnSaturn(i); break;
@@ -203,6 +203,7 @@
                     case 'Firework': vec = getPointOnFirework(i); break;
                     default: vec = getPointOnSphere(Math.random(), Math.random(), 2);
                 }
+                const i3 = i * 3;
                 targetPositions[i3] = vec.x; targetPositions[i3+1] = vec.y; targetPositions[i3+2] = vec.z;
             }
         }
@@ -217,17 +218,17 @@
         gui.addColor(config, 'color').name('Color').onChange(val => material.color.set(val));
         
         const monitorFolder = gui.addFolder('Movement Monitor');
-        monitorFolder.add(config, 'handExpansion', 0, 1).name('Expansion').listen().disable();
-        monitorFolder.add(config, 'handRotateY', -1, 1).name('Spin Speed').listen().disable();
+        monitorFolder.add(config, 'handExpansion', 0, 1).name('Open/Close').listen().disable();
+        // 範囲を -0.2 ~ 0.2 に狭めることで、動きを見やすくする
+        monitorFolder.add(config, 'handRotateY', -0.2, 0.2).name('Spin (L/R)').listen().disable();
 
         // --- MediaPipe Hands ---
         const videoElement = document.getElementById('input-video');
         const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
 
-        // 負荷軽減: modelComplexityを0 (Lite) に変更
         hands.setOptions({
-            maxNumHands: 1, // 1つに限定して処理を軽くする
-            modelComplexity: 0,
+            maxNumHands: 1,
+            modelComplexity: 0, // Liteモデルで高速化
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
@@ -236,11 +237,10 @@
             document.getElementById('loading').style.display = 'none';
             
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                // 手が見つかった場合
                 const landmarks = results.multiHandLandmarks[0];
                 const wrist = landmarks[0];
                 
-                // 1. 開閉の計算
+                // 1. 開閉 (Expansion)
                 const tips = [4, 8, 12, 16, 20];
                 let totalDist = 0;
                 tips.forEach(idx => {
@@ -250,37 +250,30 @@
                 const avgDist = totalDist / 5;
                 const targetOpenness = Math.max(0, Math.min(1, (avgDist - 0.2) / 0.25));
                 
-                // 2. 位置による回転計算 (中心0.5からのズレ)
-                // x: 0(左) - 1(右).  y: 0(上) - 1(下)
-                const xOffset = wrist.x - 0.5; 
+                // 2. 位置による回転 (Rotation)
+                const xOffset = wrist.x - 0.5; // 中心からのズレ (-0.5 ~ 0.5)
                 const yOffset = wrist.y - 0.5;
-
-                // 中央付近(デッドゾーン)では回転させない
                 const deadZone = 0.15;
                 
                 let rotY = 0;
                 let rotX = 0;
 
+                // 右に行くと正の値、左で負の値
                 if (Math.abs(xOffset) > deadZone) {
-                    // 右に行くと右回転、左に行くと左回転
-                    rotY = (xOffset > 0 ? xOffset - deadZone : xOffset + deadZone) * 0.15;
+                    rotY = (xOffset > 0 ? xOffset - deadZone : xOffset + deadZone) * 0.2; // 感度アップ
                 }
                 if (Math.abs(yOffset) > deadZone) {
-                    // 上下でX軸回転
-                    rotX = (yOffset > 0 ? yOffset - deadZone : yOffset + deadZone) * 0.15;
+                    rotX = (yOffset > 0 ? yOffset - deadZone : yOffset + deadZone) * 0.2;
                 }
 
-                // 値をスムーズに適用
+                // スムージング処理
                 config.handExpansion += (targetOpenness - config.handExpansion) * 0.1;
                 config.handRotateY += (rotY - config.handRotateY) * 0.1;
                 config.handRotateX += (rotX - config.handRotateX) * 0.1;
                 
-                // 手があるときは自動回転を一時的に無効化する処理をしたい場合はここでフラグ管理可能
-                
             } else {
-                // 手が見つからない時
                 config.handExpansion += (0.5 - config.handExpansion) * 0.05;
-                config.handRotateY *= 0.9; // 徐々に止まる
+                config.handRotateY *= 0.9;
                 config.handRotateX *= 0.9;
             }
         });
@@ -301,7 +294,6 @@
             const positionsArr = particles.geometry.attributes.position.array;
             const expansion = 0.5 + config.handExpansion * 1.5; 
 
-            // パーティクルのモーフィング計算
             for (let i = 0; i < PARTICLE_COUNT; i++) {
                 const i3 = i * 3;
                 let cx = positionsArr[i3];
@@ -311,7 +303,6 @@
                 const ty = targetPositions[i3 + 1];
                 const tz = targetPositions[i3 + 2];
 
-                // ノイズを加えたスムーズな移動
                 const noiseX = Math.sin(time + i * 0.1) * 0.005;
                 const noiseY = Math.cos(time + i * 0.05) * 0.005;
 
@@ -325,17 +316,14 @@
             }
             particles.geometry.attributes.position.needsUpdate = true;
             
-            // スケーリング適用
             particles.scale.setScalar(expansion);
             material.size = PARTICLE_SIZE * expansion;
 
-            // 回転ロジック
+            // 回転反映
             if (Math.abs(config.handRotateY) > 0.001 || Math.abs(config.handRotateX) > 0.001) {
-                // 手による操作が優先
-                particles.rotation.y += config.handRotateY; // 左右移動でスピン
-                particles.rotation.x += config.handRotateX; // 上下移動で傾き
+                particles.rotation.y += config.handRotateY;
+                particles.rotation.x += config.handRotateX;
             } else if (config.autoRotate) {
-                // 手が中央または画面外なら自動回転
                 particles.rotation.y += 0.002;
             }
 
